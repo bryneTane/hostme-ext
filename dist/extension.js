@@ -38682,13 +38682,20 @@ module.exports = Json;
 
 /***/ }),
 /* 164 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("https");
+
+/***/ }),
+/* 165 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-var CombinedStream = __webpack_require__(165);
+var CombinedStream = __webpack_require__(166);
 var util = __webpack_require__(21);
 var path = __webpack_require__(9);
-var http = __webpack_require__(167);
-var https = __webpack_require__(168);
+var http = __webpack_require__(168);
+var https = __webpack_require__(164);
 var parseUrl = (__webpack_require__(169).parse);
 var fs = __webpack_require__(3);
 var Stream = (__webpack_require__(19).Stream);
@@ -39188,12 +39195,12 @@ FormData.prototype.toString = function () {
 
 
 /***/ }),
-/* 165 */
+/* 166 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 var util = __webpack_require__(21);
 var Stream = (__webpack_require__(19).Stream);
-var DelayedStream = __webpack_require__(166);
+var DelayedStream = __webpack_require__(167);
 
 module.exports = CombinedStream;
 function CombinedStream() {
@@ -39402,7 +39409,7 @@ CombinedStream.prototype._emitError = function(err) {
 
 
 /***/ }),
-/* 166 */
+/* 167 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 var Stream = (__webpack_require__(19).Stream);
@@ -39515,18 +39522,11 @@ DelayedStream.prototype._checkIfMaxDataSizeExceeded = function() {
 
 
 /***/ }),
-/* 167 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("http");
-
-/***/ }),
 /* 168 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("https");
+module.exports = require("http");
 
 /***/ }),
 /* 169 */
@@ -41848,8 +41848,8 @@ var utils = __webpack_require__(186);
 var settle = __webpack_require__(197);
 var buildFullPath = __webpack_require__(200);
 var buildURL = __webpack_require__(189);
-var http = __webpack_require__(167);
-var https = __webpack_require__(168);
+var http = __webpack_require__(168);
+var https = __webpack_require__(164);
 var httpFollow = (__webpack_require__(207).http);
 var httpsFollow = (__webpack_require__(207).https);
 var url = __webpack_require__(169);
@@ -42213,8 +42213,8 @@ module.exports = function httpAdapter(config) {
 
 var url = __webpack_require__(169);
 var URL = url.URL;
-var http = __webpack_require__(167);
-var https = __webpack_require__(168);
+var http = __webpack_require__(168);
+var https = __webpack_require__(164);
 var Writable = (__webpack_require__(19).Writable);
 var assert = __webpack_require__(22);
 var debug = __webpack_require__(208);
@@ -44443,24 +44443,42 @@ const vscode = __webpack_require__(1);
 const localStorageService_1 = __webpack_require__(2);
 const fs = __webpack_require__(3);
 const archiver = __webpack_require__(4);
-const FormData = __webpack_require__(164);
+const https = __webpack_require__(164);
+const FormData = __webpack_require__(165);
 const axios_1 = __webpack_require__(184);
+let myStatusBarItem;
 function activate(context) {
-    let disposable = vscode.commands.registerCommand("hostme-ext.hostme-deploy", async () => {
+    // Ajouté à cause d'un pb avec axios et les certificats SSL de Letsencrypt
+    https.globalAgent.options.rejectUnauthorized = false;
+    const commandId = 'hostme-ext.hostme-deploy';
+    let disposable = vscode.commands.registerCommand(commandId, async () => {
         let storageManager = new localStorageService_1.LocalStorageService(context.workspaceState);
         const bearer = storageManager.getValue("hostme-bearer");
         if (!bearer) {
             const bearerInput = await vscode.window.showInputBox({
-                title: "Please, provide your Hostme bearer token",
+                title: "Please, provide your Hostme API Token (available on https://hostme.space/tokens)",
             });
             if (bearerInput) {
                 storageManager.setValue("hostme-bearer", bearerInput);
             }
             else {
-                vscode.window.showInformationMessage("Invalid Bearer token");
+                vscode.window.showInformationMessage("Invalid API Token");
                 return;
             }
         }
+        // TODO : Pour éviter à l'utilisateur de rentrer plusieurs fois le nom du dossier (s'il souhaite faire une mise à jour par exemple). Je pensais à stocker le nom du projet dans le workspace si possible ou de toujours proposer la derniere valeur qu'il a rempli dans le champ input.
+        // let message=""
+        // if (vscode.workspace.workspaceFolders !== undefined) {
+        //   let wf = vscode.workspace.workspaceFolders[0].uri.path;
+        //   let f = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        //   console.log(vscode.workspace.workspaceFolders)
+        //   message = `YOUR-EXTENSION: folder: ${wf} - ${f}`;
+        //   vscode.window.showInformationMessage(message);
+        // }
+        // else {
+        //   message = "YOUR-EXTENSION: Working folder not found, open a folder an try again";
+        //   vscode.window.showErrorMessage(message);
+        // }
         const input = await vscode.window.showInputBox({
             title: "Enter the name of your website",
         });
@@ -44472,65 +44490,86 @@ function activate(context) {
         };
         const fileUri = await vscode.window.showOpenDialog(options);
         if (fileUri && fileUri[0]) {
-            var output = fs.createWriteStream(`${input}.zip`);
-            var archive = archiver("zip", {
-                zlib: { level: 9 }, // Sets the compression level.
-            });
-            vscode.window.showInformationMessage("Zipped");
-            output.on("close", function () {
-                console.log(archive.pointer() + " total bytes");
-                console.log("archiver has been finalized and the output file descriptor has closed.");
-                vscode.window.showInformationMessage("before stream");
-                var newFile = fs.createReadStream(`${input}.zip`);
-                vscode.window.showInformationMessage("Stream");
-                // personally I'd function out the inner body here and just call
-                // to the function and pass in the newFile
-                newFile.on("end", async () => {
-                    const formData = new FormData();
-                    formData.append("file", newFile, `${input}.zip`);
-                    const requestConfig = {
-                        method: "post",
-                        url: `https://hostme.space/api/github/${input}/deploy_on_push`,
-                        headers: {
-                            // eslint-disable-next-line @typescript-eslint/naming-convention
-                            Authorization: "Bearer " + bearer,
-                            // eslint-disable-next-line @typescript-eslint/naming-convention
-                            Accept: "application/json",
-                            // eslint-disable-next-line @typescript-eslint/naming-convention
-                            "Content-Type": "multipart/form-data",
-                        },
-                        data: formData,
-                    };
-                    try {
-                        await (0, axios_1.default)(requestConfig);
-                        vscode.window.showInformationMessage("Sent");
-                    }
-                    catch (e) {
-                        vscode.window.showInformationMessage("Error");
-                        if (e.response.status === 401) {
-                            const bearerInput = await vscode.window.showInputBox({
-                                title: "An error occured ! Please, provide your Hostme bearer token !",
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Deployment",
+                cancellable: true
+            }, (progress, token) => {
+                token.onCancellationRequested(() => {
+                    console.log("User canceled the long running operation");
+                });
+                progress.report({ increment: 0, message: "Zipping the content ..." });
+                return new Promise((resolve, reject) => {
+                    var output = fs.createWriteStream(`${input}.zip`);
+                    var archive = archiver("zip", {
+                        zlib: { level: 9 }, // Sets the compression level.
+                    });
+                    output.on("close", async function () {
+                        progress.report({ message: "Sending to Hostme ..." });
+                        const formData = new FormData();
+                        const file = await fs.readFileSync(`${input}.zip`);
+                        formData.append('file', file, `${input}.zip`);
+                        try {
+                            let response = await axios_1.default.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
+                                headers: {
+                                    Authorization: "Bearer " + bearer,
+                                    Accept: "application/json",
+                                    ...formData.getHeaders()
+                                },
+                                'maxContentLength': Infinity,
+                                'maxBodyLength': Infinity,
+                                onUploadProgress: (progressEvent) => {
+                                    // TODO : Je souhaitais faire une barre de progression ici durant l'upload. Mais ca semble ne pas fonctionner. Il faudrait trouver pourquoi
+                                    console.log(progressEvent);
+                                    if (progressEvent.lengthComputable) {
+                                        console.log(progressEvent.loaded + ' ' + progressEvent.total);
+                                        progress.report({ increment: progressEvent.loaded });
+                                    }
+                                }
                             });
-                            if (bearerInput) {
-                                storageManager.setValue("hostme-bearer", bearerInput);
+                            console.log(response);
+                            vscode.window.showInformationMessage("Deployed 🎊. Your website is available on " + input + ".hostme.space");
+                            // TODO !IMPORTANT : Supprimer le fichier créé apres que l'upload soit fait
+                            resolve(response);
+                        }
+                        catch (e) {
+                            console.log(e);
+                            if (e.response.status === 401) {
+                                const bearerInput = await vscode.window.showInputBox({
+                                    title: "An error occured ! Please, provide your Hostme bearer token !",
+                                });
+                                if (bearerInput) {
+                                    storageManager.setValue("hostme-bearer", bearerInput);
+                                }
+                                else {
+                                    vscode.window.showErrorMessage("Invalid Bearer token");
+                                    return;
+                                }
                             }
                             else {
-                                vscode.window.showInformationMessage("Invalid Bearer token");
-                                return;
+                                vscode.window.showErrorMessage(e.response?.data?.error);
                             }
+                            // TODO !IMPORTANT : Supprimer le fichier créé meme s'il ya erreur durant la mise en ligne
+                            reject();
                         }
-                    }
+                    });
+                    archive.on("error", function (err) {
+                        console.error(err);
+                        throw err;
+                    });
+                    archive.pipe(output);
+                    archive.directory(fileUri[0].fsPath, false);
+                    archive.finalize();
                 });
             });
-            archive.on("error", function (err) {
-                throw err;
-            });
-            archive.pipe(output);
-            archive.directory(fileUri[0].fsPath, false);
-            archive.finalize();
         }
     });
     context.subscriptions.push(disposable);
+    myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    myStatusBarItem.command = commandId;
+    myStatusBarItem.text = `Deploy on Hostme`;
+    myStatusBarItem.show();
+    context.subscriptions.push(myStatusBarItem);
 }
 exports.activate = activate;
 function deactivate() { }
