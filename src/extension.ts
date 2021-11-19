@@ -4,8 +4,8 @@ import * as fs from "fs";
 import * as archiver from "archiver";
 import * as https from "https";
 import * as FormData from "form-data";
-import axios, { AxiosRequestConfig } from "axios";
-import fetch from "node-fetch";
+import slugify from "slugify";
+import axios, { AxiosInterceptorManager, AxiosRequestConfig } from "axios";
 
 let myStatusBarItem: vscode.StatusBarItem;
 
@@ -18,49 +18,61 @@ export function activate(context: vscode.ExtensionContext) {
   let disposable = vscode.commands.registerCommand(
     commandId,
     async () => {
-      let storageManager = new LocalStorageService(context.workspaceState);
+      let globalStorageManager = new LocalStorageService(context.globalState);
+      let localStorageManager = new LocalStorageService(context.workspaceState);
 
-      const bearer = storageManager.getValue("hostme-bearer");
+      const bearer = globalStorageManager.getValue("hostme-bearer");
 
       if (!bearer) {
         const bearerInput = await vscode.window.showInputBox({
           title: "Please, provide your Hostme API Token (available on https://hostme.space/tokens)",
         });
         if (bearerInput) {
-          storageManager.setValue("hostme-bearer", bearerInput);
+          globalStorageManager.setValue("hostme-bearer", bearerInput);
         } else {
           vscode.window.showInformationMessage("Invalid API Token");
           return;
         }
       }
-      
-      // TODO : Pour éviter à l'utilisateur de rentrer plusieurs fois le nom du dossier (s'il souhaite faire une mise à jour par exemple). Je pensais à stocker le nom du projet dans le workspace si possible ou de toujours proposer la derniere valeur qu'il a rempli dans le champ input.
 
-      // let message=""
-      // if (vscode.workspace.workspaceFolders !== undefined) {
-      //   let wf = vscode.workspace.workspaceFolders[0].uri.path;
-      //   let f = vscode.workspace.workspaceFolders[0].uri.fsPath;
-      //   console.log(vscode.workspace.workspaceFolders)
-      //   message = `YOUR-EXTENSION: folder: ${wf} - ${f}`;
+      let input: string | undefined, default_workspace_name;
+      if (vscode.workspace.workspaceFolders !== undefined) {
+        console.log(vscode.workspace.workspaceFolders)
+        default_workspace_name = slugify(vscode.workspace.workspaceFolders[0].name)
 
-      //   vscode.window.showInformationMessage(message);
-      // }
-      // else {
-      //   message = "YOUR-EXTENSION: Working folder not found, open a folder an try again";
+        input = await vscode.window.showInputBox({
+          title: "Enter the name of your website",
+          value: default_workspace_name
+        });
 
-      //   vscode.window.showErrorMessage(message);
-      // }
+        if (input) {
+          globalStorageManager.setValue("hostme-workspace-" + default_workspace_name, input);
+        } else {
+          vscode.window.showInformationMessage("You have to give a name to deploy your project");
+          return;
+        }
 
-      const input = await vscode.window.showInputBox({
-        title: "Enter the name of your website",
-      });
+      } else {
+        input = await vscode.window.showInputBox({
+          title: "Enter the name of your website",
+        });
+        if (input) {
+          localStorageManager.setValue("hostme-workspace-name", input);
+        } else {
+          vscode.window.showInformationMessage("You have to give a name to deploy your project");
+          return;
+        }
+      }
+
 
       const options: vscode.OpenDialogOptions = {
-        canSelectMany: false,
-        openLabel: "Open",
-        canSelectFiles: false,
+        canSelectMany: true,
+        openLabel: "Deploy this folder",
+        canSelectFiles: true,
         canSelectFolders: true,
       };
+      if (vscode.workspace.workspaceFolders)
+        options.defaultUri = vscode.workspace.workspaceFolders[0].uri;
 
       const fileUri = await vscode.window.showOpenDialog(options);
       if (fileUri && fileUri[0]) {
@@ -70,11 +82,21 @@ export function activate(context: vscode.ExtensionContext) {
           title: "Deployment",
           cancellable: true
         }, (progress, token): any => {
+
+          let axiosDeployRequestSource: any;
+          let cancelled = false;
           token.onCancellationRequested(() => {
+            cancelled = true;
+            console.log("Inside cancellation > ", cancelled)
+            if (axiosDeployRequestSource) {
+              axiosDeployRequestSource.cancel()
+              vscode.window.showInformationMessage("Deploy cancelled ...",)
+            }
             console.log("User canceled the long running operation");
+            return false;
           });
 
-          progress.report({ increment: 0, message: "Zipping the content ..." });
+          progress.report({  increment: 0, message: "Zipping the content ...",  });
 
           return new Promise((resolve, reject) => {
 
@@ -83,23 +105,30 @@ export function activate(context: vscode.ExtensionContext) {
               zlib: { level: 9 }, // Sets the compression level.
             });
 
+            console.log("Outside close. Cancelled ? ", cancelled)
             output.on("close", async function () {
               progress.report({ message: "Sending to Hostme ..." });
 
               const formData = new FormData();
               const file = await fs.readFileSync(`${input}.zip`);
               formData.append('file', file, `${input}.zip`);
-
+              console.log("Inside close. Cancelled ? ", cancelled)
+              if(cancelled){
+                reject()
+                return; 
+              }
               try {
-
-                let response = await axios.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
+                axiosDeployRequestSource = axios.CancelToken.source()
+                let axiosDeployRequest = await axios.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
                   headers: {
                     Authorization: "Bearer " + bearer,
                     Accept: "application/json",
                     ...formData.getHeaders()
                   },
+
                   'maxContentLength': Infinity,
                   'maxBodyLength': Infinity,
+                  cancelToken: axiosDeployRequestSource.token,
                   onUploadProgress: (progressEvent) => {
                     // TODO : Je souhaitais faire une barre de progression ici durant l'upload. Mais ca semble ne pas fonctionner. Il faudrait trouver pourquoi
                     console.log(progressEvent)
@@ -109,10 +138,11 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                   }
                 })
-                console.log(response)
+                console.log(axiosDeployRequest)
                 vscode.window.showInformationMessage("Deployed 🎊. Your website is available on " + input + ".hostme.space",)
-                // TODO !IMPORTANT : Supprimer le fichier créé apres que l'upload soit fait
-                resolve(response)
+                await fs.unlinkSync(`${input}.zip`);
+                progress.report({ increment: 100 });
+                resolve(axiosDeployRequest)
               } catch (e: any) {
                 console.log(e)
                 if (e.response.status === 401) {
@@ -121,7 +151,7 @@ export function activate(context: vscode.ExtensionContext) {
                       "An error occured ! Please, provide your Hostme bearer token !",
                   });
                   if (bearerInput) {
-                    storageManager.setValue("hostme-bearer", bearerInput);
+                    globalStorageManager.setValue("hostme-bearer", bearerInput);
                   } else {
                     vscode.window.showErrorMessage("Invalid Bearer token");
                     return;
@@ -129,7 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
                 } else {
                   vscode.window.showErrorMessage(e.response?.data?.error);
                 }
-                // TODO !IMPORTANT : Supprimer le fichier créé meme s'il ya erreur durant la mise en ligne
+                await fs.unlinkSync(`${input}.zip`);
                 reject()
               }
 
