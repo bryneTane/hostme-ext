@@ -1,7 +1,9 @@
 {
 	"name": "hostme-ext",
-	"displayName": "hostme-ext",
-	"description": "Easily host your website from VSCode with Hostme.space",
+	"displayName": "Hostme Space",
+	"description": "Deploy your websites easily with hostme.space. You can easily deploy build of React project, Angular project and VueJS project. You can also deploy vanilla PHP project. Register on hostme.space/register",
+	"icon": "images/logo.png",
+	"publisher": "HostmeSpace",
 	"version": "0.0.2",
 	"engines": {
 		"vscode": "^1.62.0"
@@ -10,6 +12,7 @@
 		"Other"
 	],
 	"activationEvents": [
+		"*",
 		"onCommand:hostme-ext.hostme-deploy"
 	],
 	"main": "./dist/extension.js",
@@ -34,6 +37,7 @@
 	},
 	"devDependencies": {
 		"@types/archiver": "^5.1.1",
+		"@types/get-folder-size": "^3.0.1",
 		"@types/glob": "^7.1.4",
 		"@types/mocha": "^9.0.0",
 		"@types/node": "14.x",
@@ -53,6 +57,7 @@
 		"archiver": "^5.3.0",
 		"axios": "^0.24.0",
 		"form-data": "^4.0.0",
+		"get-folder-size": "^3.1.0",
 		"node-fetch": "^3.1.0",
 		"slugify": "^1.6.2"
 	}
