@@ -16,6 +16,7 @@ const AUTO_DEPLOY = "hostme-ext.hostme-deploy.auto";
 /**
  * TODO : Améliorations possibles
  *
+ * - Mise à jour possible :  Permettre aux utilisateur de redéployer le meme dossier sans plus avoir à remplir les champs. S'ils souhaitent déployer le meme. Je pensais à ajouter un bouton "Update <slug>.hostme.space" et lorsqu'il cliquera dessus, ca mettra simplement à jour
  * - Vérifier le slug utilisé pour savoir s'il est bien disponible. Donc faire une requete d'API à Hostme à chaque validation de slug pour vérifier l'existance
  */
 
@@ -33,7 +34,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
     const bearerInput = await vscode.window.showInputBox({
       title: "Please, provide your Hostme API Token (available on https://hostme.space/tokens)",
     });
-    if (bearerInput) {
+    if (bearerInput && bearerInput !== "") {
       globalStorageManager.setValue("hostme-bearer", bearerInput);
     } else {
       vscode.window.showInformationMessage("Invalid API Token");
@@ -112,7 +113,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
             const pathSize = await getFolderSize.loose(fileUri[0].fsPath);
             if (pathSize > 127000000) {
               // If the folder'size is greather than 128M, cancel the operation. I think it's the server limit for upload file
-              vscode.window.showErrorMessage("This folder is too heavy. Select another one", "Choose another folder").then((response) => {
+              vscode.window.showErrorMessage("This folder is too heavy. Select another one (< 127MB)", "Choose another folder").then((response) => {
                 if (response === "Choose another folder") {
                   vscode.commands.executeCommand(CLASSIC_DEPLOYMENT);
                 }
@@ -143,97 +144,56 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
 
             archive.finalize();
 
-            console.log("Outside close. Cancelled ? ", cancelled, pathSize);
-
             // The ZIP file is ready
             output.on("close", async function () {
               progress.report({ increment: 50, message: "Deploying on Hostme ..." });
-
+              let finished = false;
               const formData = new FormData();
               const file = await fs.readFileSync(`${input}.zip`);
               formData.append("file", file, `${input}.zip`);
-              console.log("Inside close. Cancelled ? ", cancelled);
               if (cancelled) {
                 reject();
                 return;
               }
-              try {
-                axiosDeployRequestSource = axios.CancelToken.source();
-                let axiosDeployRequest = await axios.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
-                  headers: {
-                    Authorization: "Bearer " + bearer,
-                    Accept: "application/json",
-                    ...formData.getHeaders(),
-                  },
+              axiosDeployRequestSource = axios.CancelToken.source();
+              do {
+                try {
+                  let axiosDeployRequest = await deployToHostme(input, axiosDeployRequestSource, formData, bearer);
 
-                  maxContentLength: Infinity,
-                  maxBodyLength: Infinity,
-                  cancelToken: axiosDeployRequestSource.token,
-                  onUploadProgress: (progressEvent) => {
-                    // TODO : Je souhaitais faire une barre de progression ici durant l'upload. Mais ca semble ne pas fonctionner. Il faudrait trouver pourquoi
-                    if (progressEvent.lengthComputable) {
-                      console.log(progressEvent.loaded + " " + progressEvent.total);
-                      progress.report({ increment: progressEvent.loaded });
+                  vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".hostme.space", "Visit").then((action) => {
+                    if (action === "Visit") {
+                      vscode.env.openExternal(vscode.Uri.parse(`https://${input}.hostme.space`));
                     }
-                  },
-                });
-
-                console.log(axiosDeployRequest);
-
-                // TODO : Mise à jour possible :  Permettre aux utilisateur de redéployer le meme dossier sans plus avoir à remplir les champs. S'ils souhaitent déployer le meme. Je pensais à ajouter un bouton "Update <slug>.hostme.space" et lorsqu'il cliquera dessus, ca mettra simplement à jour
-                // if (vscode.workspace.workspaceFolders !== undefined) {
-                //   let defaultWorkspaceName = slugify(vscode.workspace.workspaceFolders[0].name);
-                //   if (globalStorageManager.getValue("hostme-workspace-" + defaultWorkspaceName)) {
-                //     myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
-                //     myStatusBarItem.command = AUTO_DEPLOY;
-                //     myStatusBarItem.text = `Deploy to ${globalStorageManager.getValue("hostme-workspace-" + defaultWorkspaceName)}.hostme.space`;
-                //     myStatusBarItem.show();
-                //     context.subscriptions.push(myStatusBarItem);
-                //   }
-                // } else {
-                //   if (localStorageManager.getValue("hostme-workspace-name")) {
-                //     myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
-                //     myStatusBarItem.command = AUTO_DEPLOY;
-                //     myStatusBarItem.text = `Deploy to ${localStorageManager.getValue("hostme-workspace-name")}.hostme.space`;
-                //     myStatusBarItem.show();
-                //     context.subscriptions.push(myStatusBarItem);
-                //   }
-                // }
-
-                vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".hostme.space", "Visit").then((action) => {
-                  if (action === "Visit") {
-                    vscode.env.openExternal(vscode.Uri.parse(`https://${input}.hostme.space`));
-                  }
-                });
-                await fs.unlinkSync(`${input}.zip`);
-
-                resolve(axiosDeployRequest);
-              } catch (e: any) {
-                console.log(e);
-                if (e.response.status === 401) {
-                  const bearerInput = await vscode.window.showInputBox({
-                    title: "An error occured ! Please, provide your Hostme bearer token !",
                   });
-                  if (bearerInput) {
-                    globalStorageManager.setValue("hostme-bearer", bearerInput);
+                  await fs.unlinkSync(`${input}.zip`);
+                  finished = true;
+                  resolve(axiosDeployRequest);
+                } catch (e: any) {
+                  if (e.response.status === 401) {
+                    globalStorageManager.setValue("hostme-bearer", "");
+                    const bearerInput = await vscode.window.showInputBox({
+                      title: "An error occured ! Please, provide a new Hostme API token !",
+                    });
+                    if (bearerInput && bearerInput !== "") {
+                      globalStorageManager.setValue("hostme-bearer", bearerInput);
+                      // On recommence l'upload
+                    } else {
+                      await fs.unlinkSync(`${input}.zip`);
+                      vscode.window.showErrorMessage("No token received");
+                      cancelled = true;
+                      reject();
+                    }
                   } else {
-                    vscode.window.showErrorMessage("401 Unauthorized. Your API Token seems expired or invalid", "Set a new Token").then((response) => {
-                      if (response === "Set a new Token") {
+                    vscode.window.showErrorMessage(e.response?.data?.error, "Try again").then((response) => {
+                      if (response === "Try again") {
                         vscode.commands.executeCommand(CLASSIC_DEPLOYMENT);
                       }
                     });
-                    return;
+                    finished = true;
+                    reject();
                   }
-                } else {
-                  vscode.window.showErrorMessage(e.response?.data?.error, "Try again").then((response) => {
-                    if (response === "Try again") {
-                      vscode.commands.executeCommand(CLASSIC_DEPLOYMENT);
-                    }
-                  });
                 }
-                await fs.unlinkSync(`${input}.zip`);
-                reject();
-              }
+              } while (cancelled === false && finished === false);
             });
           });
         }
@@ -252,6 +212,26 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
  */
 async function fastDeploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) {}
 
+async function deployToHostme(input: any, axiosDeployRequestSource: any, formData: any, bearer: any) {
+  return await axios.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
+    headers: {
+      Authorization: "Bearer " + bearer,
+      Accept: "application/json",
+      ...formData.getHeaders(),
+    },
+
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
+    cancelToken: axiosDeployRequestSource.token,
+    // onUploadProgress: (progressEvent) => {
+    //   // TODO : Je souhaitais faire une barre de progression ici durant l'upload. Mais ca semble ne pas fonctionner. Il faudrait trouver pourquoi
+    //   if (progressEvent.lengthComputable) {
+    //     console.log(progressEvent.loaded + " " + progressEvent.total);
+    //     progress.report({ increment: progressEvent.loaded });
+    //   }
+    // },
+  });
+}
 export function activate(context: vscode.ExtensionContext) {
   // Ajouté à cause d'un pb avec axios et les certificats SSL de Letsencrypt
   https.globalAgent.options.rejectUnauthorized = false;
