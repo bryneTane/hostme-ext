@@ -4,7 +4,7 @@
 	"description": "Deploy your websites easily with hostme.space. You can easily deploy build of React project, Angular project and VueJS project. You can also deploy vanilla PHP project. Register on hostme.space/register",
 	"icon": "images/logo.png",
 	"publisher": "HostmeSpace",
-	"version": "0.0.5",
+	"version": "0.0.7",
 	"engines": {
 		"vscode": "^1.62.0"
 	},

@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { Memento } from "vscode";
+
 import { LocalStorageService } from "./localStorageService";
 import * as fs from "fs";
 import * as archiver from "archiver";
@@ -42,18 +44,20 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
     }
   }
 
-  let input: string | undefined, defaultWorkspaceName;
+  let input: string, defaultWorkspaceName;
   if (vscode.workspace.workspaceFolders !== undefined) {
     console.log(vscode.workspace.workspaceFolders);
     defaultWorkspaceName = slugify(vscode.workspace.workspaceFolders[0].name);
 
+    let localStorageManager = new LocalStorageService(context.workspaceState);
     input = await vscode.window.showInputBox({
       title: "Enter the name of your website",
-      value: defaultWorkspaceName,
-    });
+      value: localStorageManager.getValue("input") || defaultWorkspaceName,
+    }) || defaultWorkspaceName;
 
+    localStorageManager.setValue("input", input);
     if (input) {
-      globalStorageManager.setValue("hostme-workspace-" + defaultWorkspaceName, input);
+      localStorageManager.setValue("hostme-workspace-" + defaultWorkspaceName, input);
     } else {
       vscode.window.showInformationMessage("You have to give a name to deploy your project");
       return;
@@ -61,8 +65,10 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
   } else {
     input = await vscode.window.showInputBox({
       title: "Enter the name of your website",
-      value: localStorageManager.getValue("hostme-workspace-name"),
-    });
+      value: localStorageManager.getValue("input") || localStorageManager.getValue("hostme-workspace-name"),
+    })|| "my-website";
+    
+    localStorageManager.setValue("input", input);
     if (input) {
       localStorageManager.setValue("hostme-workspace-name", input);
     } else {
@@ -130,7 +136,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
               if (cancelled) {
                 archive.abort();
               }
-              progress.report({ message: "Zipping the content " + progressData.fs.processedBytes + " on " + pathSize + "..." });
+              progress.report({ increment: progressData.fs.processedBytes * 50 / pathSize, message: "Zipping the content " + progressData.fs.processedBytes + " on " + pathSize + "..." });
             });
 
             archive.on("error", function (err: any) {
@@ -160,9 +166,9 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                 try {
                   let axiosDeployRequest = await deployToHostme(input, axiosDeployRequestSource, formData, bearer);
 
-                  vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".hostme.space", "Visit").then((action) => {
+                  vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".myhostme.space", "Visit").then((action) => {
                     if (action === "Visit") {
-                      vscode.env.openExternal(vscode.Uri.parse(`https://${input}.hostme.space`));
+                      vscode.env.openExternal(vscode.Uri.parse(`https://${input}.myhostme.space`));
                     }
                   });
                   await fs.unlinkSync(`${input}.zip`);
@@ -210,7 +216,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
  * @param param1
  * @returns
  */
-async function fastDeploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) {}
+async function fastDeploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) { }
 
 async function deployToHostme(input: any, axiosDeployRequestSource: any, formData: any, bearer: any) {
   return await axios.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
@@ -256,4 +262,4 @@ export function activate(context: vscode.ExtensionContext) {
   // context.subscriptions.push(auto_deploy);
 }
 
-export function deactivate() {}
+export function deactivate() { }
