@@ -1,6 +1,7 @@
 /*!
  * mime-db
  * Copyright(c) 2014 Jonathan Ong
+ * Copyright(c) 2015-2022 Douglas Christopher Wilson
  * MIT Licensed
  */
 
@@ -17,6 +18,8 @@
  * Copyright (c) 2014-2018, Jon Schlinkert.
  * Released under the MIT License.
  */
+
+/*! crc32.js (C) 2014-present SheetJS -- http://sheetjs.com */
 
 /*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
 

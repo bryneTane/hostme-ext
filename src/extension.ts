@@ -14,7 +14,7 @@ let myStatusBarItem: vscode.StatusBarItem;
 
 const CLASSIC_DEPLOYMENT = "hostme-ext.hostme-deploy";
 const AUTO_DEPLOY = "hostme-ext.hostme-deploy.auto";
-
+const CHANGE_API_TOKEN  = "Change API Token";
 /**
  * TODO : Améliorations possibles
  *
@@ -29,6 +29,7 @@ const AUTO_DEPLOY = "hostme-ext.hostme-deploy.auto";
  * @param AUTO_DEPLOY
  * @returns
  */
+
 async function deploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) {
   const bearer = globalStorageManager.getValue("hostme-bearer");
 
@@ -106,8 +107,20 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
             console.log("Inside cancellation > ", cancelled);
             if (axiosDeployRequestSource) {
               axiosDeployRequestSource.cancel();
-              vscode.window.showInformationMessage("Deploy cancelled ...");
             }
+            vscode.window.showInformationMessage("Deploy cancelled ...", CHANGE_API_TOKEN).then(async (action) => {
+              if (action === CHANGE_API_TOKEN) {
+
+              globalStorageManager.setValue("hostme-bearer", "");
+              const bearerInput = await vscode.window.showInputBox({
+                title: "Please, provide a new Hostme API token !",
+              });
+              if (bearerInput && bearerInput !== "") {
+                globalStorageManager.setValue("hostme-bearer", bearerInput);
+                // On recommence l'upload
+              } }
+            });
+            
             console.log("User canceled the long running operation");
             return false;
           });
@@ -115,7 +128,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
           progress.report({ increment: 0, message: "Preparing the folder ..." });
 
           return new Promise(async (resolve, reject) => {
-            var output = fs.createWriteStream(`${input}.zip`);
+            let output = fs.createWriteStream(__dirname + `${input}.zip`);
             const pathSize = await getFolderSize.loose(fileUri[0].fsPath);
             if (pathSize > 127000000) {
               // If the folder'size is greather than 128M, cancel the operation. I think it's the server limit for upload file
@@ -128,35 +141,49 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
               reject();
               return;
             }
-            var archive = archiver("zip", {
+            let archive = archiver("zip", {
               zlib: { level: 9 },
             });
 
+            let prevB:number = 0, int = 0;
             archive.on("progress", (progressData) => {
               if (cancelled) {
                 archive.abort();
               }
-              progress.report({ increment: progressData.fs.processedBytes * 50 / pathSize, message: "Zipping the content " + progressData.fs.processedBytes + " on " + pathSize + "..." });
+              let val = Math.round((progressData.fs.processedBytes - prevB) * 75 / pathSize);
+              int += val;
+              progress.report({ increment:val, message: "Zipping the content " + progressData.fs.processedBytes + " on " + pathSize + " Bytes ("+int+"%)" });
+              prevB = progressData.fs.processedBytes;
             });
 
-            archive.on("error", function (err: any) {
+            archive.on('warning', function(err) {
+              console.log(err)
+              if (err.code === 'ENOENT') {
+                // log warning
+              } else {
+                // throw error
+                throw err;
+              }
+            });
+
+            archive.on("error",  (err: any) => {
               console.error(err);
               throw err;
             });
 
             archive.pipe(output);
 
-            archive.directory(fileUri[0].fsPath, false);
+            archive.directory(fileUri[0].path, false);
 
             archive.finalize();
 
             // The ZIP file is ready
-            output.on("close", async function () {
-              progress.report({ increment: 50, message: "Deploying on Hostme ..." });
+            output.on("close", async () =>{
+              progress.report({ increment: 25, message: "Deploying on Hostme ..." });
               let finished = false;
               const formData = new FormData();
-              const file = await fs.readFileSync(`${input}.zip`);
-              formData.append("file", file, `${input}.zip`);
+              const file = await fs.readFileSync(__dirname + `${input}.zip`);
+              formData.append("file", file, __dirname + `${input}.zip`);
               if (cancelled) {
                 reject();
                 return;
@@ -171,7 +198,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                       vscode.env.openExternal(vscode.Uri.parse(`https://${input}.myhostme.space`));
                     }
                   });
-                  await fs.unlinkSync(`${input}.zip`);
+                  await fs.unlinkSync(__dirname + `${input}.zip`);
                   finished = true;
                   resolve(axiosDeployRequest);
                 } catch (e: any) {
@@ -184,7 +211,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                       globalStorageManager.setValue("hostme-bearer", bearerInput);
                       // On recommence l'upload
                     } else {
-                      await fs.unlinkSync(`${input}.zip`);
+                      await fs.unlinkSync(__dirname + `${input}.zip`);
                       vscode.window.showErrorMessage("No token received");
                       cancelled = true;
                       reject();
