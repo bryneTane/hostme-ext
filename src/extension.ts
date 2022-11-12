@@ -182,7 +182,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
               progress.report({ increment: 25, message: "Deploying on Hostme ..." });
               let finished = false;
               const formData = new FormData();
-              const file = await fs.readFileSync(__dirname + `${input}.zip`);
+              const file = fs.readFileSync(__dirname + `${input}.zip`);
               formData.append("file", file, __dirname + `${input}.zip`);
               if (cancelled) {
                 reject();
@@ -199,7 +199,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                       vscode.env.openExternal(vscode.Uri.parse(`https://${input}.myhostme.space`));
                     }
                   });
-                  await fs.unlinkSync(__dirname + `${input}.zip`);
+                  fs.unlinkSync(__dirname + `${input}.zip`);
                   finished = true;
                   resolve(axiosDeployRequest);
                 } catch (e: any) {
@@ -212,7 +212,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                       globalStorageManager.setValue("hostme-bearer", bearerInput);
                       // On recommence l'upload
                     } else {
-                      await fs.unlinkSync(__dirname + `${input}.zip`);
+                      fs.unlinkSync(__dirname + `${input}.zip`);
                       vscode.window.showErrorMessage("No token received");
                       cancelled = true;
                       reject();
