@@ -1,15 +1,18 @@
 {
 	"name": "hostme-ext",
-	"displayName": "hostme-ext",
-	"description": "",
-	"version": "0.0.1",
+	"displayName": "Hostme Space",
+	"description": "Deploy your websites easily with hostme.space. You can easily deploy build of React project, Angular project and VueJS project. You can also deploy vanilla PHP project. Register on hostme.space/register",
+	"icon": "images/logo.png",
+	"publisher": "HostmeSpace",
+	"version": "0.0.9",
 	"engines": {
-		"vscode": "^1.60.0"
+		"vscode": "^1.62.0"
 	},
 	"categories": [
 		"Other"
 	],
 	"activationEvents": [
+		"*",
 		"onCommand:hostme-ext.hostme-deploy"
 	],
 	"main": "./dist/extension.js",
@@ -34,6 +37,7 @@
 	},
 	"devDependencies": {
 		"@types/archiver": "^5.1.1",
+		"@types/get-folder-size": "^3.0.1",
 		"@types/glob": "^7.1.4",
 		"@types/mocha": "^9.0.0",
 		"@types/node": "14.x",
@@ -47,11 +51,15 @@
 		"ts-loader": "^9.2.5",
 		"typescript": "^4.4.4",
 		"webpack": "^5.52.1",
+		"vscode": "^1.1.37",
 		"webpack-cli": "^4.8.0"
 	},
 	"dependencies": {
 		"archiver": "^5.3.0",
 		"axios": "^0.24.0",
-		"form-data": "^4.0.0"
+		"form-data": "^4.0.0",
+		"get-folder-size": "^3.1.0",
+		"node-fetch": "^3.1.0",
+		"slugify": "^1.6.2"
 	}
 }
