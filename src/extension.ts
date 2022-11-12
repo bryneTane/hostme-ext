@@ -28,7 +28,7 @@ const AUTO_DEPLOY = "hostme-ext.hostme-deploy.auto";
  * @returns
  */
 async function deploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) {
-  const bearer = globalStorageManager.getValue("hostme-bearer");
+  let bearer = globalStorageManager.getValue("hostme-bearer");
 
   if (!bearer) {
     const bearerInput = await vscode.window.showInputBox({
@@ -158,6 +158,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
               axiosDeployRequestSource = axios.CancelToken.source();
               do {
                 try {
+                  bearer = globalStorageManager.getValue("hostme-bearer");
                   let axiosDeployRequest = await deployToHostme(input, axiosDeployRequestSource, formData, bearer);
 
                   vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".hostme.space", "Visit").then((action) => {
