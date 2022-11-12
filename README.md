@@ -1,20 +1,15 @@
-# Hostme Space
+# Deploy your websites with Hostme 🚀
 
 Hostme is a web tool that allows you to easily deploy your lightweight websites (HTML, CSS, JS and Vanilla PHP).
-To use this extension, you have to create an account on hostme.space/register or login on hostme.space/login and create a new API Token.
 
-## Features
+## How it works 
 
-If you want to deploy a new website, follow this steps
+1. Create an account on [Hostme.space](https://hostme.space)
+2. Generate a new API Token, on [Hostme.space/tokens](https://hostme.space/tokens)
+3. Click on `Deploy with Hostme` on bottom bar
+4. Enter your API Token
+5. Enter your project name 
 
-1. Get a new API Token (if it's your first time using Hostme)
-2. Press F1 then write "Deploy on Hostme"
-3. Enter your API Token
-4. Enter your slug name, you'll get a free secured subdomain as "your-slug.hostme.space", then you can link this subdomain to your custom domain (see hostme.space/domains section)
+## Want to know more ?
 
-## Requirements
-
-An API Token from Hostme.space
-
-
-
+Join our community on [Telegram](https://t.me/hostme_space) and [Discord](https://discord.gg/B9w6aDstHu).

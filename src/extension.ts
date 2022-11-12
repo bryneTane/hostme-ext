@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { Memento } from "vscode";
+
 import { LocalStorageService } from "./localStorageService";
 import * as fs from "fs";
 import * as archiver from "archiver";
@@ -12,7 +14,7 @@ let myStatusBarItem: vscode.StatusBarItem;
 
 const CLASSIC_DEPLOYMENT = "hostme-ext.hostme-deploy";
 const AUTO_DEPLOY = "hostme-ext.hostme-deploy.auto";
-
+const CHANGE_API_TOKEN  = "Change API Token";
 /**
  * TODO : Améliorations possibles
  *
@@ -27,6 +29,7 @@ const AUTO_DEPLOY = "hostme-ext.hostme-deploy.auto";
  * @param AUTO_DEPLOY
  * @returns
  */
+
 async function deploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) {
   let bearer = globalStorageManager.getValue("hostme-bearer");
 
@@ -42,18 +45,20 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
     }
   }
 
-  let input: string | undefined, defaultWorkspaceName;
+  let input: string, defaultWorkspaceName;
   if (vscode.workspace.workspaceFolders !== undefined) {
     console.log(vscode.workspace.workspaceFolders);
     defaultWorkspaceName = slugify(vscode.workspace.workspaceFolders[0].name);
 
+    let localStorageManager = new LocalStorageService(context.workspaceState);
     input = await vscode.window.showInputBox({
       title: "Enter the name of your website",
-      value: defaultWorkspaceName,
-    });
+      value: localStorageManager.getValue("input") || defaultWorkspaceName,
+    }) || defaultWorkspaceName;
 
+    localStorageManager.setValue("input", input);
     if (input) {
-      globalStorageManager.setValue("hostme-workspace-" + defaultWorkspaceName, input);
+      localStorageManager.setValue("hostme-workspace-" + defaultWorkspaceName, input);
     } else {
       vscode.window.showInformationMessage("You have to give a name to deploy your project");
       return;
@@ -61,8 +66,10 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
   } else {
     input = await vscode.window.showInputBox({
       title: "Enter the name of your website",
-      value: localStorageManager.getValue("hostme-workspace-name"),
-    });
+      value: localStorageManager.getValue("input") || localStorageManager.getValue("hostme-workspace-name"),
+    })|| "my-website";
+    
+    localStorageManager.setValue("input", input);
     if (input) {
       localStorageManager.setValue("hostme-workspace-name", input);
     } else {
@@ -100,8 +107,20 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
             console.log("Inside cancellation > ", cancelled);
             if (axiosDeployRequestSource) {
               axiosDeployRequestSource.cancel();
-              vscode.window.showInformationMessage("Deploy cancelled ...");
             }
+            vscode.window.showInformationMessage("Deploy cancelled ...", CHANGE_API_TOKEN).then(async (action) => {
+              if (action === CHANGE_API_TOKEN) {
+
+              globalStorageManager.setValue("hostme-bearer", "");
+              const bearerInput = await vscode.window.showInputBox({
+                title: "Please, provide a new Hostme API token !",
+              });
+              if (bearerInput && bearerInput !== "") {
+                globalStorageManager.setValue("hostme-bearer", bearerInput);
+                // On recommence l'upload
+              } }
+            });
+            
             console.log("User canceled the long running operation");
             return false;
           });
@@ -109,7 +128,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
           progress.report({ increment: 0, message: "Preparing the folder ..." });
 
           return new Promise(async (resolve, reject) => {
-            var output = fs.createWriteStream(`${input}.zip`);
+            let output = fs.createWriteStream(__dirname + `${input}.zip`);
             const pathSize = await getFolderSize.loose(fileUri[0].fsPath);
             if (pathSize > 127000000) {
               // If the folder'size is greather than 128M, cancel the operation. I think it's the server limit for upload file
@@ -122,35 +141,49 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
               reject();
               return;
             }
-            var archive = archiver("zip", {
+            let archive = archiver("zip", {
               zlib: { level: 9 },
             });
 
+            let prevB:number = 0, int = 0;
             archive.on("progress", (progressData) => {
               if (cancelled) {
                 archive.abort();
               }
-              progress.report({ message: "Zipping the content " + progressData.fs.processedBytes + " on " + pathSize + "..." });
+              let val = Math.round((progressData.fs.processedBytes - prevB) * 75 / pathSize);
+              int += val;
+              progress.report({ increment:val, message: "Zipping the content " + progressData.fs.processedBytes + " on " + pathSize + " Bytes ("+int+"%)" });
+              prevB = progressData.fs.processedBytes;
             });
 
-            archive.on("error", function (err: any) {
+            archive.on('warning', function(err) {
+              console.log(err)
+              if (err.code === 'ENOENT') {
+                // log warning
+              } else {
+                // throw error
+                throw err;
+              }
+            });
+
+            archive.on("error",  (err: any) => {
               console.error(err);
               throw err;
             });
 
             archive.pipe(output);
 
-            archive.directory(fileUri[0].fsPath, false);
+            archive.directory(fileUri[0].path, false);
 
             archive.finalize();
 
             // The ZIP file is ready
-            output.on("close", async function () {
-              progress.report({ increment: 50, message: "Deploying on Hostme ..." });
+            output.on("close", async () =>{
+              progress.report({ increment: 25, message: "Deploying on Hostme ..." });
               let finished = false;
               const formData = new FormData();
-              const file = await fs.readFileSync(`${input}.zip`);
-              formData.append("file", file, `${input}.zip`);
+              const file = await fs.readFileSync(__dirname + `${input}.zip`);
+              formData.append("file", file, __dirname + `${input}.zip`);
               if (cancelled) {
                 reject();
                 return;
@@ -161,12 +194,12 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                   bearer = globalStorageManager.getValue("hostme-bearer");
                   let axiosDeployRequest = await deployToHostme(input, axiosDeployRequestSource, formData, bearer);
 
-                  vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".hostme.space", "Visit").then((action) => {
+                  vscode.window.showInformationMessage("🎊 Your website is live now, on " + input + ".myhostme.space", "Visit").then((action) => {
                     if (action === "Visit") {
-                      vscode.env.openExternal(vscode.Uri.parse(`https://${input}.hostme.space`));
+                      vscode.env.openExternal(vscode.Uri.parse(`https://${input}.myhostme.space`));
                     }
                   });
-                  await fs.unlinkSync(`${input}.zip`);
+                  await fs.unlinkSync(__dirname + `${input}.zip`);
                   finished = true;
                   resolve(axiosDeployRequest);
                 } catch (e: any) {
@@ -179,7 +212,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
                       globalStorageManager.setValue("hostme-bearer", bearerInput);
                       // On recommence l'upload
                     } else {
-                      await fs.unlinkSync(`${input}.zip`);
+                      await fs.unlinkSync(__dirname + `${input}.zip`);
                       vscode.window.showErrorMessage("No token received");
                       cancelled = true;
                       reject();
@@ -211,7 +244,7 @@ async function deploy(context: vscode.ExtensionContext, { globalStorageManager, 
  * @param param1
  * @returns
  */
-async function fastDeploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) {}
+async function fastDeploy(context: vscode.ExtensionContext, { globalStorageManager, localStorageManager }: { globalStorageManager: LocalStorageService; localStorageManager: LocalStorageService }) { }
 
 async function deployToHostme(input: any, axiosDeployRequestSource: any, formData: any, bearer: any) {
   return await axios.post(`https://hostme.space/api/websites/${input}/deploy_on_push`, formData, {
@@ -257,4 +290,4 @@ export function activate(context: vscode.ExtensionContext) {
   // context.subscriptions.push(auto_deploy);
 }
 
-export function deactivate() {}
+export function deactivate() { }
